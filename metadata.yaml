@@ -1,5 +1,5 @@
 name: astrbot_plugin_astrbot_enhance_mode
-desc: 系统提示词角色显示、增强群聊上下文格式（含发送者 ID 和角色标签）、图片转述、主动回复
+desc: 本插件为 AstrBot 的群聊场景提供增强功能，完全替代内置的「群聊上下文感知」和「主动回复」，并额外支持角色标签和发送者 ID。
 author: 阿汐
 version: 0.1.0
-repo: ""
+repo: https://github.com/Axi404/astrbot_plugin_astrbot_enhance_mode
