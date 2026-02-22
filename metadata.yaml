@@ -1,0 +1,5 @@
+name: astrbot_plugin_astrbot_enhance_mode
+desc: 系统提示词角色显示、增强群聊上下文格式（含发送者 ID 和角色标签）、图片转述、主动回复
+author: 阿汐
+version: 0.1.0
+repo: ""

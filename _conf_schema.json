@@ -1,0 +1,83 @@
+{
+  "role_display": {
+    "description": "角色显示",
+    "hint": "在系统提示词中注入用户角色信息（admin/member）。需要开启 AstrBot 内置的「用户识别」功能。",
+    "type": "bool",
+    "default": true
+  },
+  "group_context": {
+    "description": "增强群聊上下文",
+    "hint": "以增强格式（含发送者 ID、角色标签）记录群聊消息并注入 LLM 上下文。完全替代内置的「群聊上下文感知」功能。",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用",
+        "hint": "启用增强群聊上下文记录。请先关闭 AstrBot 内置的「群聊上下文感知」和「主动回复」选项。",
+        "type": "bool",
+        "default": false
+      },
+      "max_messages": {
+        "description": "最大消息数",
+        "hint": "每个会话保留的最大消息条数。",
+        "type": "int",
+        "default": 300
+      },
+      "include_sender_id": {
+        "description": "包含发送者 ID",
+        "hint": "在消息格式中包含发送者的用户 ID。",
+        "type": "bool",
+        "default": true
+      },
+      "include_role_tag": {
+        "description": "包含角色标签",
+        "hint": "在消息格式中包含 admin/member 角色标签。",
+        "type": "bool",
+        "default": true
+      },
+      "image_caption": {
+        "description": "图片转述",
+        "hint": "使用 LLM 为群聊中的图片生成文字描述。需要配置转述使用的提供商 ID。",
+        "type": "bool",
+        "default": false
+      },
+      "image_caption_provider_id": {
+        "description": "图片转述提供商 ID",
+        "hint": "用于生成图片描述的 LLM 提供商 ID。留空使用默认提供商。可在 AstrBot 后台「LLM 配置」中查看。",
+        "type": "string",
+        "_special": "select_provider",
+        "default": ""
+      },
+      "image_caption_prompt": {
+        "description": "图片转述提示词",
+        "hint": "发送给 LLM 用于生成图片描述的提示词。",
+        "type": "string",
+        "default": "用一句话描述这张图片。"
+      }
+    }
+  },
+  "active_reply": {
+    "description": "主动回复",
+    "hint": "在群聊中随机回复消息（无需被 @）。完全替代内置的「主动回复」功能。",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "启用",
+        "hint": "启用群聊主动回复。请先关闭 AstrBot 内置的「主动回复」选项。",
+        "type": "bool",
+        "default": false
+      },
+      "possibility": {
+        "description": "回复概率",
+        "hint": "对每条群消息回复的概率（0.0 - 1.0）。例如 0.1 表示 10% 的概率。",
+        "type": "float",
+        "default": 0.1
+      },
+      "whitelist": {
+        "description": "白名单",
+        "hint": "用英文逗号分隔的 unified_msg_origin 或群 ID 列表，限制主动回复的范围。留空则对所有群生效。",
+        "type": "string",
+        "default": ""
+      }
+    }
+  }
+}
