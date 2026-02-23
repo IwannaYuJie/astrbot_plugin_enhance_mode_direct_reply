@@ -1,0 +1,190 @@
+from dataclasses import dataclass, field
+from typing import Any
+
+DEFAULT_MODEL_CHOICE_PROMPT = (
+    "你当前的人格面具是：{persona_name}\n"
+    "人格设定如下：\n{persona_mask}\n\n"
+    "你正在群聊中扮演助手。以下是最近 {stack_size} 条群聊消息：\n"
+    "{messages}\n\n"
+    "额外历史上下文（最近 {history_count} 条）：\n"
+    "{history_context}\n\n"
+    "请严格站在该人格的角度判断你是否应该主动回复。"
+    "如果需要回复，只输出 REPLY；如果不需要回复，只输出 SKIP。"
+)
+
+
+def _to_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def _to_pos_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_whitelist(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [token.strip() for token in value.split(",") if token.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(token).strip() for token in value if str(token).strip()]
+    return []
+
+
+@dataclass(frozen=True)
+class GroupHistoryEnhancementConfig:
+    enable: bool = False
+    max_messages: int = 300
+    include_sender_id: bool = True
+    include_role_tag: bool = True
+    image_caption: bool = False
+    image_caption_provider_id: str = ""
+    image_caption_prompt: str = "用一句话描述这张图片。"
+
+
+@dataclass(frozen=True)
+class ActiveReplyConfig:
+    enable: bool = False
+    mode: str = "probability"
+    possibility: float = 0.1
+    model_stack_size: int = 8
+    model_history_messages: int = 0
+    model_choice_prompt: str = DEFAULT_MODEL_CHOICE_PROMPT
+    whitelist: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GroupFeatureEnhancementConfig:
+    react_mode_enable: bool = False
+    role_display: bool = True
+    mention_parse: bool = True
+
+
+@dataclass(frozen=True)
+class GlobalLruConfig:
+    max_origins: int = 500
+
+
+@dataclass(frozen=True)
+class GlobalTimeoutConfig:
+    image_caption_sec: float = 45.0
+    model_choice_sec: float = 45.0
+
+
+@dataclass(frozen=True)
+class GlobalSettingsConfig:
+    lru_cache: GlobalLruConfig = field(default_factory=GlobalLruConfig)
+    timeouts: GlobalTimeoutConfig = field(default_factory=GlobalTimeoutConfig)
+
+
+@dataclass(frozen=True)
+class PluginConfig:
+    group_history: GroupHistoryEnhancementConfig = field(
+        default_factory=GroupHistoryEnhancementConfig
+    )
+    active_reply: ActiveReplyConfig = field(default_factory=ActiveReplyConfig)
+    group_features: GroupFeatureEnhancementConfig = field(
+        default_factory=GroupFeatureEnhancementConfig
+    )
+    global_settings: GlobalSettingsConfig = field(default_factory=GlobalSettingsConfig)
+
+    @property
+    def group_history_enabled(self) -> bool:
+        return self.group_features.react_mode_enable and self.group_history.enable
+
+    @property
+    def active_reply_enabled(self) -> bool:
+        return self.group_features.react_mode_enable and self.active_reply.enable
+
+
+def parse_plugin_config(raw: dict[str, Any] | None) -> PluginConfig:
+    raw = raw or {}
+
+    group_features_raw = raw.get("group_features", {})
+    group_features = GroupFeatureEnhancementConfig(
+        react_mode_enable=_to_bool(group_features_raw.get("react_mode_enable"), False),
+        role_display=_to_bool(group_features_raw.get("role_display"), True),
+        mention_parse=_to_bool(group_features_raw.get("mention_parse"), True),
+    )
+
+    group_history_raw = raw.get("group_history_enhancement", {})
+    group_history = GroupHistoryEnhancementConfig(
+        enable=_to_bool(group_history_raw.get("enable"), False),
+        max_messages=max(1, _to_int(group_history_raw.get("max_messages"), 300)),
+        include_sender_id=_to_bool(group_history_raw.get("include_sender_id"), True),
+        include_role_tag=_to_bool(group_history_raw.get("include_role_tag"), True),
+        image_caption=_to_bool(group_history_raw.get("image_caption"), False),
+        image_caption_provider_id=str(
+            group_history_raw.get("image_caption_provider_id") or ""
+        ),
+        image_caption_prompt=str(
+            group_history_raw.get("image_caption_prompt") or "用一句话描述这张图片。"
+        ),
+    )
+
+    active_reply_raw = raw.get("active_reply", {})
+    mode = str(active_reply_raw.get("mode", "probability")).strip().lower()
+    if mode not in {"probability", "model_choice"}:
+        mode = "probability"
+    active_reply = ActiveReplyConfig(
+        enable=_to_bool(active_reply_raw.get("enable"), False),
+        mode=mode,
+        possibility=_to_float(active_reply_raw.get("possibility"), 0.1),
+        model_stack_size=max(1, _to_int(active_reply_raw.get("model_stack_size"), 8)),
+        model_history_messages=max(
+            0, _to_int(active_reply_raw.get("model_history_messages"), 0)
+        ),
+        model_choice_prompt=str(
+            active_reply_raw.get("model_choice_prompt") or DEFAULT_MODEL_CHOICE_PROMPT
+        ),
+        whitelist=_parse_whitelist(active_reply_raw.get("whitelist", "")),
+    )
+
+    global_settings_raw = raw.get("global_settings", {})
+    lru_raw = global_settings_raw.get("lru_cache", {})
+    timeouts_raw = global_settings_raw.get("timeouts", {})
+    global_settings = GlobalSettingsConfig(
+        lru_cache=GlobalLruConfig(
+            max_origins=max(1, _to_int(lru_raw.get("max_origins"), 500))
+        ),
+        timeouts=GlobalTimeoutConfig(
+            image_caption_sec=_to_pos_float(
+                timeouts_raw.get("image_caption_sec"), 45.0
+            ),
+            model_choice_sec=_to_pos_float(timeouts_raw.get("model_choice_sec"), 45.0),
+        ),
+    )
+
+    return PluginConfig(
+        group_history=group_history,
+        active_reply=active_reply,
+        group_features=group_features,
+        global_settings=global_settings,
+    )

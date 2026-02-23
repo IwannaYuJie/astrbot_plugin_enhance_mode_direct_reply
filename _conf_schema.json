@@ -1,106 +1,49 @@
 {
-  "role_display": {
-    "description": "角色显示",
-    "hint": "在系统提示词中注入用户角色信息（admin/member）。需要开启 AstrBot 内置的「用户识别」功能。",
-    "type": "bool",
-    "default": true
-  },
-  "mention_parse": {
-    "description": "@ 提及解析",
-    "hint": "解析 LLM 输出中的 <mention id=\"用户ID\"> 标签，替换为真正的 @ 消息组件。同时解析 <quote id=\"消息ID\"> 标签为引用回复。需要开启「增强群聊上下文」并包含发送者 ID。⚠️ 与内置「引用回复」(reply_with_quote) 互斥，请先关闭内置引用回复。",
-    "type": "bool",
-    "default": true
-  },
-  "react_mode": {
-    "description": "React 模式",
-    "hint": "启用后，增强群聊上下文与主动回复能力生效；并将群聊中的 LLM 请求改写为“群聊反应模式”（基于群聊历史对新消息做反应）。",
+  "group_history_enhancement": {
+    "description": "群聊历史增强",
+    "hint": "以增强格式记录群聊消息并注入 LLM 上下文。依赖「群聊功能增强 -> React 模式」开启。",
     "type": "object",
     "items": {
       "enable": {
         "description": "启用",
-        "hint": "启用 React 模式。关闭时，增强群聊上下文与主动回复均不会生效。开启后，群聊中的请求会使用 react 提示词并清空原有 contexts。",
-        "type": "bool",
-        "default": false
-      }
-    }
-  },
-  "lru_cache": {
-    "description": "LRU 缓存限制",
-    "hint": "限制插件同时保留的会话来源数量，避免长期运行内存增长。",
-    "type": "object",
-    "items": {
-      "max_origins": {
-        "description": "最大来源数",
-        "hint": "最多保留多少个 unified_msg_origin 的缓存状态。超出后会淘汰最久未使用来源。",
-        "type": "int",
-        "default": 500
-      }
-    }
-  },
-  "timeouts": {
-    "description": "超时设置",
-    "hint": "外部模型调用超时（秒）。用于图片转述与 model_choice 判定。",
-    "type": "object",
-    "items": {
-      "image_caption_sec": {
-        "description": "图片转述超时(秒)",
-        "hint": "图片转述调用 LLM 的超时时间（秒）。",
-        "type": "float",
-        "default": 45
-      },
-      "model_choice_sec": {
-        "description": "模型判定超时(秒)",
-        "hint": "model_choice 判定调用 LLM 的超时时间（秒）。",
-        "type": "float",
-        "default": 45
-      }
-    }
-  },
-  "group_context": {
-    "description": "增强群聊上下文",
-    "hint": "以增强格式（含发送者 ID、角色标签）记录群聊消息并注入 LLM 上下文。完全替代内置的「群聊上下文感知」功能。依赖「React 模式」开启。",
-    "type": "object",
-    "items": {
-      "enable": {
-        "description": "启用",
-        "hint": "启用增强群聊上下文记录。请先开启「React 模式」，并关闭 AstrBot 内置的「群聊上下文感知」、「主动回复」和「引用回复」(reply_with_quote) 选项。",
+        "hint": "启用群聊历史增强。建议关闭 AstrBot 内置的群聊上下文感知功能以避免重复注入。",
         "type": "bool",
         "default": false
       },
       "max_messages": {
         "description": "最大消息数",
-        "hint": "每个会话保留的最大消息条数。",
+        "hint": "每个会话保留的最大历史消息条数。",
         "type": "int",
         "default": 300
       },
       "include_sender_id": {
         "description": "包含发送者 ID",
-        "hint": "在消息格式中包含发送者的用户 ID。",
+        "hint": "在历史消息格式中写入发送者用户 ID。",
         "type": "bool",
         "default": true
       },
       "include_role_tag": {
         "description": "包含角色标签",
-        "hint": "在消息格式中包含 admin/member 角色标签。",
+        "hint": "在历史消息格式中写入 admin/member 角色标记。",
         "type": "bool",
         "default": true
       },
       "image_caption": {
         "description": "图片转述",
-        "hint": "使用 LLM 为群聊中的图片生成文字描述。可选配置专用提供商 ID，留空时使用当前默认提供商。",
+        "hint": "为群聊中的图片生成文字描述并写入历史。",
         "type": "bool",
         "default": false
       },
       "image_caption_provider_id": {
         "description": "图片转述提供商 ID",
-        "hint": "用于生成图片描述的 LLM 提供商 ID。留空使用默认提供商。可在 AstrBot 后台「LLM 配置」中查看。",
+        "hint": "用于图片转述的 LLM 提供商 ID，留空使用默认提供商。",
         "type": "string",
         "_special": "select_provider",
         "default": ""
       },
       "image_caption_prompt": {
         "description": "图片转述提示词",
-        "hint": "发送给 LLM 用于生成图片描述的提示词。",
+        "hint": "发送给图片转述模型的提示词。",
         "type": "string",
         "default": "用一句话描述这张图片。"
       }
@@ -108,12 +51,12 @@
   },
   "active_reply": {
     "description": "主动回复",
-    "hint": "在群聊中主动回复消息（无需被 @）。支持「概率触发」和「模型选择触发」两种模式。依赖「React 模式」开启。",
+    "hint": "在群聊中主动回复（无需被 @）。依赖「群聊功能增强 -> React 模式」开启。",
     "type": "object",
     "items": {
       "enable": {
         "description": "启用",
-        "hint": "启用群聊主动回复。请先开启「React 模式」并关闭 AstrBot 内置的「主动回复」和「引用回复」(reply_with_quote) 选项。",
+        "hint": "启用主动回复。建议关闭 AstrBot 内置主动回复与内置引用回复（reply_with_quote）。",
         "type": "bool",
         "default": false
       },
@@ -125,33 +68,97 @@
       },
       "possibility": {
         "description": "回复概率",
-        "hint": "当 mode=probability 时生效。对每条群消息回复的概率（0.0 - 1.0）。",
+        "hint": "当 mode=probability 时生效，范围建议 0.0 - 1.0。",
         "type": "float",
         "default": 0.1
       },
       "model_stack_size": {
         "description": "模型触发栈长度",
-        "hint": "当 mode=model_choice 时生效。累计到该条数后触发一次模型判定。",
+        "hint": "当 mode=model_choice 时生效，累计到该条数后触发一次模型判定。",
         "type": "int",
         "default": 8
       },
       "model_history_messages": {
-        "description": "模型判定历史上下文条数",
-        "hint": "当 mode=model_choice 时生效。判定时额外附带最近多少条历史消息作为上下文（0 表示不附带）。",
+        "description": "模型判定历史条数",
+        "hint": "当 mode=model_choice 时生效，判定时附带的额外历史消息条数（0 表示不附带）。",
         "type": "int",
         "default": 0
       },
       "model_choice_prompt": {
         "description": "模型判定提示词",
-        "hint": "当 mode=model_choice 时生效。可使用 {stack_size}、{messages}、{history_count}、{history_context}、{persona_name}、{persona_mask} 占位符，模型需只输出 REPLY 或 SKIP。",
+        "hint": "可使用 {stack_size}、{messages}、{history_count}、{history_context}、{persona_name}、{persona_mask} 占位符，模型需只输出 REPLY 或 SKIP。",
         "type": "string",
         "default": "你当前的人格面具是：{persona_name}\n人格设定如下：\n{persona_mask}\n\n你正在群聊中扮演助手。以下是最近 {stack_size} 条群聊消息：\n{messages}\n\n额外历史上下文（最近 {history_count} 条）：\n{history_context}\n\n请严格站在该人格的角度判断你是否应该主动回复。如果需要回复，只输出 REPLY；如果不需要回复，只输出 SKIP。"
       },
       "whitelist": {
         "description": "白名单",
-        "hint": "用英文逗号分隔的 unified_msg_origin 或群 ID 列表，限制主动回复范围。留空则对所有群生效。",
+        "hint": "英文逗号分隔的 unified_msg_origin 或群 ID。留空表示所有群可触发。",
         "type": "string",
         "default": ""
+      }
+    }
+  },
+  "group_features": {
+    "description": "群聊功能增强",
+    "hint": "与群聊交互行为相关的增强能力（React 模式、角色注入、Mention/Quote 标签解析）。",
+    "type": "object",
+    "items": {
+      "react_mode_enable": {
+        "description": "React 模式",
+        "hint": "启用后，群聊历史增强与主动回复能力才会生效。",
+        "type": "bool",
+        "default": false
+      },
+      "role_display": {
+        "description": "角色显示",
+        "hint": "在 system_reminder 中注入用户角色（admin/member），需开启 AstrBot 内置用户识别。",
+        "type": "bool",
+        "default": true
+      },
+      "mention_parse": {
+        "description": "Mention/Quote 标签解析",
+        "hint": "解析 LLM 输出中的 <mention id=\"用户ID\"/> 与 <quote id=\"消息ID\"/>，并转换为平台消息组件。",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "global_settings": {
+    "description": "全局设置",
+    "hint": "运行时全局参数，包括 LRU 缓存限制与模型调用超时设置。",
+    "type": "object",
+    "items": {
+      "lru_cache": {
+        "description": "LRU 缓存限制",
+        "hint": "限制同时保留的会话来源数量，避免内存持续增长。",
+        "type": "object",
+        "items": {
+          "max_origins": {
+            "description": "最大来源数",
+            "hint": "最多保留多少个 unified_msg_origin 状态，超出后淘汰最久未使用来源。",
+            "type": "int",
+            "default": 500
+          }
+        }
+      },
+      "timeouts": {
+        "description": "超时设置",
+        "hint": "外部模型调用超时（秒），用于图片转述与 model_choice 判定。",
+        "type": "object",
+        "items": {
+          "image_caption_sec": {
+            "description": "图片转述超时(秒)",
+            "hint": "图片转述调用 LLM 的超时时间。",
+            "type": "float",
+            "default": 45
+          },
+          "model_choice_sec": {
+            "description": "模型判定超时(秒)",
+            "hint": "model_choice 判定调用 LLM 的超时时间。",
+            "type": "float",
+            "default": 45
+          }
+        }
       }
     }
   }
