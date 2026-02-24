@@ -16,3 +16,6 @@ venv/
 
 # OS/editor artifacts
 .DS_Store
+
+# Runtime plugin data
+data/temp/
