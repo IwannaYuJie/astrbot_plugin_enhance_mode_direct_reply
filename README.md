@@ -1,9 +1,16 @@
 # AstrBot Enhance Mode
 
-**Version**: `v0.2.1`  
+**Version**: `v0.2.3`  
 **Author**: `阿汐`
 
 `astrbot_plugin_astrbot_enhance_mode` 是 AstrBot 的群聊增强插件，提供 React 群聊上下文、主动回复、标签解析、封禁控制、Memory RAG 与可视化 WebUI。
+
+## Update Notes (v0.2.3)
+
+- 新增按需图片描述工具 `enhance_get_image_description`，支持在历史中按消息 ID 回填图片描述。
+- Memory RAG 时间解析/显示统一跟随 AstrBot 全局 `timezone`（默认 `Asia/Shanghai`）。
+- WebUI 新增 Cleanup 功能与 `/api/cleanup`，可将旧记录规范化并回写。
+- 新增插件依赖声明 `requirements.txt`，自动安装 `fastapi`、`uvicorn`，修复安装后缺模块导致加载失败。
 
 ## Design Philosophy
 
