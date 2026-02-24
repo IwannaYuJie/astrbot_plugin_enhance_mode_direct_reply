@@ -20,6 +20,7 @@
     loginError: document.getElementById("login-error"),
     password: document.getElementById("password"),
     logoutBtn: document.getElementById("logout-btn"),
+    cleanupBtn: document.getElementById("cleanup-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
     searchBtn: document.getElementById("search-btn"),
     resetBtn: document.getElementById("reset-btn"),
@@ -39,6 +40,8 @@
     statScopes: document.getElementById("stat-scopes"),
     statGroups: document.getElementById("stat-groups"),
     statRoles: document.getElementById("stat-roles"),
+    timezoneTag: document.getElementById("timezone-tag"),
+    timeColumnTitle: document.getElementById("time-column-title"),
   };
 
   function init() {
@@ -47,6 +50,9 @@
     });
     dom.logoutBtn.addEventListener("click", () => {
       void logout();
+    });
+    dom.cleanupBtn.addEventListener("click", () => {
+      void onCleanup();
     });
     dom.refreshBtn.addEventListener("click", () => {
       void fetchAll();
@@ -142,6 +148,7 @@
   function updateControlState() {
     const isBusy = state.busyCount > 0;
     dom.searchBtn.disabled = isBusy;
+    dom.cleanupBtn.disabled = isBusy;
     dom.refreshBtn.disabled = isBusy;
     dom.resetBtn.disabled = isBusy;
     dom.pageSize.disabled = isBusy;
@@ -223,6 +230,9 @@
     dom.statScopes.textContent = formatNumber(stats.group_scope_count);
     dom.statGroups.textContent = formatNumber(stats.group_id_count);
     dom.statRoles.textContent = formatNumber(stats.role_count);
+    const timezoneName = String(stats.display_timezone || "").trim();
+    dom.timezoneTag.textContent = timezoneName || "-";
+    dom.timeColumnTitle.textContent = timezoneName ? `Time (${timezoneName})` : "Time";
   }
 
   function clipText(text, max = 90) {
@@ -371,6 +381,26 @@
       });
     } catch (error) {
       showToast(error.message || "Delete failed", true);
+    }
+  }
+
+  async function onCleanup() {
+    const confirmed = window.confirm(
+      "Run cleanup to normalize legacy records and refresh timestamp metadata?"
+    );
+    if (!confirmed) return;
+
+    try {
+      await runWithBusy(async () => {
+        const payload = await api("/api/cleanup", { method: "POST" });
+        const data = payload.data || {};
+        const scanned = Number(data.scanned || 0);
+        const updated = Number(data.updated || 0);
+        showToast(`Cleanup done: updated ${updated}/${scanned} records.`);
+        await fetchAll(false);
+      });
+    } catch (error) {
+      showToast(error.message || "Cleanup failed", true);
     }
   }
 

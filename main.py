@@ -8,6 +8,7 @@ import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from astrbot.api import llm_tool, logger, sp, star
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
@@ -43,6 +44,7 @@ class Main(star.Star):
         self.context = context
         self.config = config or {}
         self.runtime = RuntimeState()
+        self._display_timezone = self._resolve_config_timezone()
         plugin_data_dir = (
             Path(get_astrbot_data_path())
             / "plugin_data"
@@ -52,13 +54,17 @@ class Main(star.Star):
         self.memory_rag_store: MemoryRAGStore | None = None
         self.rag_webui_server: RAGWebUIServer | None = None
         try:
-            self.memory_rag_store = MemoryRAGStore(plugin_data_dir / "memory_rag.db")
+            self.memory_rag_store = MemoryRAGStore(
+                plugin_data_dir / "memory_rag.db",
+                display_timezone=self._display_timezone,
+            )
         except Exception as e:
             logger.error(f"enhance-mode | 初始化记忆 RAG 存储失败: {e}", exc_info=True)
         logger.info(
-            "enhance-mode | plugin initialized | data_dir=%s memory_rag_store_ready=%s",
+            "enhance-mode | plugin initialized | data_dir=%s memory_rag_store_ready=%s timezone=%s",
             plugin_data_dir,
             self.memory_rag_store is not None,
+            self._display_timezone,
         )
 
     def _cfg(self) -> PluginConfig:
@@ -66,6 +72,30 @@ class Main(star.Star):
 
     def _touch_origin(self, origin: str, cfg: PluginConfig) -> None:
         self.runtime.touch_origin(origin, cfg.global_settings.lru_cache.max_origins)
+
+    def _resolve_config_timezone(self) -> str:
+        base_cfg = self.context.get_config()
+        if not isinstance(base_cfg, dict):
+            return "Asia/Shanghai"
+        timezone_name = str(base_cfg.get("timezone") or "").strip()
+        return timezone_name or "Asia/Shanghai"
+
+    def _resolve_tzinfo(self) -> datetime.tzinfo:
+        timezone_name = self._resolve_config_timezone()
+        try:
+            return ZoneInfo(timezone_name)
+        except Exception:
+            try:
+                return ZoneInfo("Asia/Shanghai")
+            except Exception:
+                return datetime.timezone.utc
+
+    def _format_timestamp_iso(self, timestamp: float | int) -> str:
+        if self.memory_rag_store is not None:
+            return self.memory_rag_store.format_timestamp_iso(timestamp)
+        return datetime.datetime.fromtimestamp(
+            float(timestamp), tz=self._resolve_tzinfo()
+        ).isoformat()
 
     @staticmethod
     def _provider_label(provider: object | None) -> str:
@@ -203,8 +233,7 @@ class Main(star.Star):
             deduped.append(role_id)
         return deduped
 
-    @staticmethod
-    def _parse_optional_timestamp(raw: str) -> float | None:
+    def _parse_optional_timestamp(self, raw: str) -> float | None:
         text = str(raw or "").strip()
         if not text:
             return None
@@ -218,6 +247,7 @@ class Main(star.Star):
         except (TypeError, ValueError):
             pass
 
+        tzinfo = self._resolve_tzinfo()
         normalized = text.replace("Z", "+00:00")
         for fmt in (
             "%Y-%m-%d %H:%M:%S",
@@ -225,13 +255,15 @@ class Main(star.Star):
             "%Y-%m-%d",
         ):
             try:
-                dt = datetime.datetime.strptime(normalized, fmt)
+                dt = datetime.datetime.strptime(normalized, fmt).replace(tzinfo=tzinfo)
                 return dt.timestamp()
             except ValueError:
                 continue
 
         try:
             dt = datetime.datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=tzinfo)
             return dt.timestamp()
         except ValueError:
             return None
@@ -388,14 +420,18 @@ class Main(star.Star):
     @filter.on_astrbot_loaded()
     async def on_astrbot_loaded(self) -> None:
         cfg = self._cfg()
+        self._display_timezone = self._resolve_config_timezone()
+        if self.memory_rag_store is not None:
+            self.memory_rag_store.set_display_timezone(self._display_timezone)
         logger.info(
-            "enhance-mode | loaded | react_mode=%s group_history=%s active_reply=%s memory_rag=%s webui=%s lru_max_origins=%s",
+            "enhance-mode | loaded | react_mode=%s group_history=%s active_reply=%s memory_rag=%s webui=%s lru_max_origins=%s timezone=%s",
             cfg.group_features.react_mode_enable,
             cfg.group_history_enabled,
             cfg.active_reply_enabled,
             cfg.memory_rag.enable,
             cfg.memory_rag_webui.enable,
             cfg.global_settings.lru_cache.max_origins,
+            self._display_timezone,
         )
         await self._start_memory_rag_webui()
 
@@ -1467,9 +1503,7 @@ class Main(star.Star):
                 "status": "ok",
                 "memory_id": memory_id,
                 "memory_time": memory_ts,
-                "memory_time_iso": datetime.datetime.fromtimestamp(
-                    memory_ts, tz=datetime.timezone.utc
-                ).isoformat(),
+                "memory_time_iso": self._format_timestamp_iso(memory_ts),
                 "group_scope": final_scope,
                 "group_id": final_group_id,
                 "platform_id": final_platform_id,

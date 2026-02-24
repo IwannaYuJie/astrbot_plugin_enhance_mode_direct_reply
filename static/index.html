@@ -35,8 +35,10 @@
               <p class="eyebrow">Console Overview</p>
               <h2>RAG Memory Dashboard</h2>
               <p class="muted">Read, filter and clean persisted memories</p>
+              <p class="muted">Display Timezone: <span id="timezone-tag">-</span></p>
             </div>
             <div class="topbar-actions">
+              <button id="cleanup-btn" class="ghost">Cleanup</button>
               <button id="refresh-btn" class="ghost">Refresh</button>
               <button id="logout-btn" class="ghost">Logout</button>
             </div>
@@ -88,7 +90,7 @@
                   <th>Content</th>
                   <th>Group Scope</th>
                   <th>Roles</th>
-                  <th>Time</th>
+                  <th id="time-column-title">Time</th>
                   <th>Actions</th>
                 </tr>
               </thead>

@@ -62,6 +62,7 @@
   - `enhance_memory_rag_write`
   - `enhance_memory_rag_read`
 - Embedding Provider 独立配置（不是聊天模型 Provider）
+- 时间显示与时间解析统一使用 AstrBot 全局 `timezone`（默认 `Asia/Shanghai`）
 - 按角色、时间、群范围过滤
 - 支持 `ignore_group_id=true` 跨群读取
 
@@ -70,6 +71,7 @@
 - 独立 HTTP 服务
 - 登录认证（支持固定密码或启动时随机密码）
 - 统计、筛选、分页、详情、删除
+- Cleanup：将旧记录规范化为新时间元数据并回写存储
 - 管理命令：`/enhance rag-webui`
 
 ## Installation
@@ -258,6 +260,7 @@
 - `POST /api/login`
 - `POST /api/logout`
 - `GET /api/stats`
+- `POST /api/cleanup`
 - `GET /api/memories`
 - `GET /api/memories/{memory_id}`
 - `DELETE /api/memories/{memory_id}`

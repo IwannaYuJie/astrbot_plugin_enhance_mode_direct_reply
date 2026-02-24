@@ -8,15 +8,24 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 class MemoryRAGStore:
     """SQLite-backed memory store for enhance mode RAG tools."""
 
-    def __init__(self, db_path: Path, default_scan_limit: int = 5000) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        default_scan_limit: int = 5000,
+        display_timezone: str = "Asia/Shanghai",
+    ) -> None:
         self.db_path = Path(db_path)
         self.default_scan_limit = max(1, int(default_scan_limit))
         self._lock = threading.RLock()
+        self._display_timezone = "Asia/Shanghai"
+        self._display_tzinfo = timezone.utc
+        self.set_display_timezone(display_timezone)
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -129,6 +138,50 @@ class MemoryRAGStore:
                 return []
         return vector
 
+    @staticmethod
+    def _normalize_timestamp(raw: float | int) -> tuple[float, bool]:
+        timestamp = float(raw)
+        if timestamp > 1e12:
+            return timestamp / 1000.0, True
+        return timestamp, False
+
+    def set_display_timezone(self, timezone_name: str) -> str:
+        tz_name = str(timezone_name or "").strip() or "Asia/Shanghai"
+        try:
+            tzinfo = ZoneInfo(tz_name)
+        except Exception:
+            try:
+                tz_name = "Asia/Shanghai"
+                tzinfo = ZoneInfo(tz_name)
+            except Exception:
+                tz_name = "UTC"
+                tzinfo = timezone.utc
+        self._display_timezone = tz_name
+        self._display_tzinfo = tzinfo
+        return tz_name
+
+    @property
+    def display_timezone(self) -> str:
+        return self._display_timezone
+
+    def _format_timestamp(self, timestamp: float | int) -> tuple[str, str]:
+        dt = datetime.fromtimestamp(float(timestamp), tz=self._display_tzinfo)
+        return dt.isoformat(), (dt.strftime("%Z") or self._display_timezone)
+
+    def format_timestamp_iso(self, timestamp: float | int) -> str:
+        iso_text, _ = self._format_timestamp(timestamp)
+        return iso_text
+
+    def _build_memory_time_fields(self, timestamp: float | int) -> dict[str, Any]:
+        ts = float(timestamp)
+        local_iso, tz_abbr = self._format_timestamp(ts)
+        return {
+            "memory_time": ts,
+            "memory_time_iso": local_iso,
+            "memory_time_tz": tz_abbr,
+            "memory_time_timezone": self._display_timezone,
+        }
+
     def add_memory(
         self,
         *,
@@ -153,7 +206,8 @@ class MemoryRAGStore:
             raise ValueError("`embedding` cannot be empty.")
 
         embedding_vector = [float(value) for value in embedding]
-        timestamp = float(memory_time) if memory_time is not None else time.time()
+        raw_timestamp = float(memory_time) if memory_time is not None else time.time()
+        timestamp, _ = self._normalize_timestamp(raw_timestamp)
         now = time.time()
         metadata = extra_metadata if isinstance(extra_metadata, dict) else {}
 
@@ -232,14 +286,10 @@ class MemoryRAGStore:
                 (target_id,),
             ).fetchall()
 
-        return {
+        result = {
             "memory_id": int(row["id"]),
             "content": str(row["content"]),
             "embedding_dim": int(row["embedding_dim"]),
-            "memory_time": float(row["memory_time"]),
-            "memory_time_iso": datetime.fromtimestamp(
-                float(row["memory_time"]), tz=timezone.utc
-            ).isoformat(),
             "group_scope": str(row["group_scope"] or ""),
             "group_id": str(row["group_id"] or ""),
             "platform_id": str(row["platform_id"] or ""),
@@ -248,6 +298,8 @@ class MemoryRAGStore:
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         }
+        result.update(self._build_memory_time_fields(float(row["memory_time"])))
+        return result
 
     def list_memories(
         self,
@@ -342,24 +394,20 @@ class MemoryRAGStore:
         for row in rows:
             mem_id = int(row["id"])
             memory_time = float(row["memory_time"])
-            items.append(
-                {
-                    "memory_id": mem_id,
-                    "content": str(row["content"]),
-                    "embedding_dim": int(row["embedding_dim"]),
-                    "memory_time": memory_time,
-                    "memory_time_iso": datetime.fromtimestamp(
-                        memory_time, tz=timezone.utc
-                    ).isoformat(),
-                    "group_scope": str(row["group_scope"] or ""),
-                    "group_id": str(row["group_id"] or ""),
-                    "platform_id": str(row["platform_id"] or ""),
-                    "related_role_ids": roles_map.get(mem_id, []),
-                    "extra_metadata": self._parse_json_dict(row["extra_metadata"]),
-                    "created_at": float(row["created_at"]),
-                    "updated_at": float(row["updated_at"]),
-                }
-            )
+            item = {
+                "memory_id": mem_id,
+                "content": str(row["content"]),
+                "embedding_dim": int(row["embedding_dim"]),
+                "group_scope": str(row["group_scope"] or ""),
+                "group_id": str(row["group_id"] or ""),
+                "platform_id": str(row["platform_id"] or ""),
+                "related_role_ids": roles_map.get(mem_id, []),
+                "extra_metadata": self._parse_json_dict(row["extra_metadata"]),
+                "created_at": float(row["created_at"]),
+                "updated_at": float(row["updated_at"]),
+            }
+            item.update(self._build_memory_time_fields(memory_time))
+            items.append(item)
 
         return {
             "items": items,
@@ -405,24 +453,32 @@ class MemoryRAGStore:
                 else None
             )
 
-        return {
+        result = {
             "total_memories": total,
             "group_scope_count": scopes,
             "group_id_count": groups,
             "role_count": roles,
             "oldest_memory_time": oldest,
             "latest_memory_time": latest,
-            "oldest_memory_time_iso": datetime.fromtimestamp(
-                oldest, tz=timezone.utc
-            ).isoformat()
-            if oldest is not None
-            else None,
-            "latest_memory_time_iso": datetime.fromtimestamp(
-                latest, tz=timezone.utc
-            ).isoformat()
-            if latest is not None
-            else None,
+            "display_timezone": self._display_timezone,
+            "oldest_memory_time_iso": (
+                self.format_timestamp_iso(oldest) if oldest is not None else None
+            ),
+            "latest_memory_time_iso": (
+                self.format_timestamp_iso(latest) if latest is not None else None
+            ),
         }
+        if oldest is not None:
+            _, oldest_tz = self._format_timestamp(oldest)
+            result["oldest_memory_time_tz"] = oldest_tz
+        else:
+            result["oldest_memory_time_tz"] = None
+        if latest is not None:
+            _, latest_tz = self._format_timestamp(latest)
+            result["latest_memory_time_tz"] = latest_tz
+        else:
+            result["latest_memory_time_tz"] = None
+        return result
 
     def search_memories(
         self,
@@ -551,22 +607,18 @@ class MemoryRAGStore:
             if has_query_embedding:
                 similarity = self._cosine_similarity(clean_query_embedding, embedding)
 
-            candidates.append(
-                {
-                    "memory_id": memory_id,
-                    "content": str(row["content"]),
-                    "memory_time": memory_time,
-                    "memory_time_iso": datetime.fromtimestamp(
-                        memory_time, tz=timezone.utc
-                    ).isoformat(),
-                    "group_scope": str(row["group_scope"] or ""),
-                    "group_id": str(row["group_id"] or ""),
-                    "platform_id": str(row["platform_id"] or ""),
-                    "related_role_ids": roles_map.get(memory_id, []),
-                    "similarity": similarity,
-                    "extra_metadata": self._parse_json_dict(row["extra_metadata"]),
-                }
-            )
+            candidate = {
+                "memory_id": memory_id,
+                "content": str(row["content"]),
+                "group_scope": str(row["group_scope"] or ""),
+                "group_id": str(row["group_id"] or ""),
+                "platform_id": str(row["platform_id"] or ""),
+                "related_role_ids": roles_map.get(memory_id, []),
+                "similarity": similarity,
+                "extra_metadata": self._parse_json_dict(row["extra_metadata"]),
+            }
+            candidate.update(self._build_memory_time_fields(memory_time))
+            candidates.append(candidate)
 
         if has_query_embedding:
             candidates.sort(
@@ -601,3 +653,71 @@ class MemoryRAGStore:
         if max_results > 0:
             return candidates[: int(max_results)]
         return candidates
+
+    def cleanup_legacy_records(self) -> dict[str, Any]:
+        updated = 0
+        normalized_ms = 0
+        metadata_refreshed = 0
+
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, memory_time, extra_metadata FROM rag_memories ORDER BY id ASC"
+            ).fetchall()
+            now_ts = time.time()
+            cleaned_at_iso = self.format_timestamp_iso(now_ts)
+
+            for row in rows:
+                memory_id = int(row["id"])
+                raw_time = float(row["memory_time"])
+                normalized_time, converted = self._normalize_timestamp(raw_time)
+                if converted:
+                    normalized_ms += 1
+
+                metadata = self._parse_json_dict(row["extra_metadata"])
+                original_cleanup = metadata.get("_enhance_cleanup")
+                memory_time_iso, memory_time_tz = self._format_timestamp(
+                    normalized_time
+                )
+                previous_cleaned_at = ""
+                if isinstance(original_cleanup, dict):
+                    previous_cleaned_at = str(
+                        original_cleanup.get("cleaned_at") or ""
+                    ).strip()
+                cleanup_payload = {
+                    "version": 2,
+                    "timezone": self._display_timezone,
+                    "timezone_abbr": memory_time_tz,
+                    "memory_time_iso": memory_time_iso,
+                    "cleaned_at": previous_cleaned_at or cleaned_at_iso,
+                }
+                metadata_changed = original_cleanup != cleanup_payload
+                if metadata_changed:
+                    metadata["_enhance_cleanup"] = cleanup_payload
+                    metadata_refreshed += 1
+
+                if not converted and not metadata_changed:
+                    continue
+
+                conn.execute(
+                    """
+                    UPDATE rag_memories
+                    SET memory_time = ?, extra_metadata = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        normalized_time,
+                        json.dumps(metadata, ensure_ascii=False),
+                        now_ts,
+                        memory_id,
+                    ),
+                )
+                updated += 1
+
+        return {
+            "status": "ok",
+            "scanned": len(rows),
+            "updated": updated,
+            "normalized_millisecond_timestamps": normalized_ms,
+            "metadata_refreshed": metadata_refreshed,
+            "display_timezone": self._display_timezone,
+        }

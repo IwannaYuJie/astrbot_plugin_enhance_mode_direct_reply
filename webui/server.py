@@ -307,6 +307,20 @@ class RAGWebUIServer:
             _ = token
             return {"success": True, "data": self.store.get_stats()}
 
+        @self._app.post("/api/cleanup")
+        async def cleanup(
+            token: str = Depends(self._auth_dependency()),
+        ) -> dict[str, Any]:
+            _ = token
+            result = await asyncio.to_thread(self.store.cleanup_legacy_records)
+            logger.info(
+                "enhance-mode | RAG WebUI cleanup done | scanned=%s updated=%s timezone=%s",
+                result.get("scanned"),
+                result.get("updated"),
+                result.get("display_timezone"),
+            )
+            return {"success": True, "data": result}
+
         @self._app.get("/api/memories")
         async def list_memories(
             request: Request,
