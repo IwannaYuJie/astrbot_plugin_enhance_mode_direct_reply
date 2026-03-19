@@ -3,7 +3,7 @@
 **Version**: `v0.2.4`  
 **Author**: `阿汐`
 
-`astrbot_plugin_astrbot_enhance_mode` 是 AstrBot 的群聊增强插件，提供 React 群聊上下文、主动回复、标签解析、封禁控制、Memory RAG 与可视化 WebUI。
+`astrbot_plugin_enhance_mode_direct_reply` 是 AstrBot 的群聊增强插件分支版，提供 React 群聊上下文、主动回复、标签解析、封禁控制、Memory RAG 与可视化 WebUI。
 
 ## Update Notes (v0.2.4)
 
@@ -18,7 +18,7 @@
 本插件把 Bot 设计为“具有人格与边界的行动主体”，目标不是把 Bot 做成被动问答器，而是让它拥有连续、可执行的一套互动生活。
 
 1. 回复（Reply）
-- Bot 决定何时说话、如何说话，并通过 `<mention/>`、`<quote/>` 表达互动意图。
+- Bot 决定何时说话、如何说话，并通过 `<mention/>` 表达互动意图。
 
 2. 拒绝回复（Refuse）
 - Bot 可以通过 `<refuse/>` 主动不发送本轮回复。
@@ -52,7 +52,7 @@
 ### Output Tags
 
 - `<mention id="..."/>`：转为平台 At 组件
-- `<quote id="..."/>`：转为平台引用组件
+- `<quote id="..."/>`：发送前自动移除，不再触发平台引用回复
 - `<refuse/>`：触发拒绝发送，清空结果链
 
 ### Ban Control
@@ -117,7 +117,7 @@
 | --- | --- | --- | --- |
 | `react_mode_enable` | bool | `false` | React 模式总开关，群历史增强和主动回复都依赖它 |
 | `role_display` | bool | `true` | 注入用户角色（admin/member） |
-| `mention_parse` | bool | `true` | 解析 `<mention/>` 与 `<quote/>` |
+| `mention_parse` | bool | `true` | 解析 `<mention/>`，并忽略 `<quote/>` |
 | `ban_control_enable` | bool | `true` | 启用封禁工具和运行时拦截 |
 | `ban_max_duration_sec` | int | `2592000` | 单次封禁时长上限（秒） |
 | `ban_allow_admin` | bool | `false` | 是否允许封禁管理员 |
@@ -141,6 +141,8 @@
 | `enable` | bool | `false` | 启用主动回复 |
 | `mode` | string | `"probability"` | `probability` 或 `model_choice` |
 | `possibility` | float | `0.1` | 概率触发时生效 |
+| `rate_limit_window_sec` | float | `0` | 单个会话的主动回复限流窗口；`0` 表示关闭 |
+| `rate_limit_max_replies` | int | `0` | 限流窗口内最多主动回复次数；超限后会暂存并在 CD 后补发 |
 | `model_stack_size` | int | `8` | `model_choice` 栈长度 |
 | `model_history_messages` | int | `0` | `model_choice` 额外历史条数 |
 | `model_choice_provider_id` | string | `""` | `model_choice` 判定模型的提供商 ID，空则使用当前会话默认提供商 |
@@ -193,7 +195,6 @@
 
 ```text
 <mention id="user_id"/>
-<quote id="msg_id"/>
 <refuse/>
 ```
 
@@ -309,7 +310,7 @@
 插件数据目录：
 
 ```text
-data/plugin_data/astrbot_plugin_astrbot_enhance_mode/
+data/plugin_data/astrbot_plugin_enhance_mode_direct_reply/
 ```
 
 数据库文件：
@@ -320,7 +321,7 @@ data/plugin_data/astrbot_plugin_astrbot_enhance_mode/
 ## Project Structure
 
 ```text
-astrbot_plugin_astrbot_enhance_mode/
+astrbot_plugin_enhance_mode_direct_reply/
 ├── main.py
 ├── plugin_config.py
 ├── runtime_state.py

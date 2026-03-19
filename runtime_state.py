@@ -1,4 +1,4 @@
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, deque
 
 
 class RuntimeState:
@@ -6,16 +6,24 @@ class RuntimeState:
         self.session_chats: dict[str, list[str]] = defaultdict(list)
         self.active_reply_stacks: dict[str, list[str]] = defaultdict(list)
         self.model_choice_histories: dict[str, list[str]] = defaultdict(list)
+        self.active_reply_send_timestamps: dict[str, deque[float]] = defaultdict(deque)
         self.image_message_registry: dict[str, dict[str, dict[str, object]]] = (
             defaultdict(dict)
         )
+        self.pending_active_reply_jobs: dict[str, dict[str, object]] = {}
+        self.pending_active_reply_tasks: dict[str, object] = {}
         self.origin_lru: OrderedDict[str, None] = OrderedDict()
 
     def _evict_origin_state(self, origin: str) -> None:
         self.session_chats.pop(origin, None)
         self.active_reply_stacks.pop(origin, None)
         self.model_choice_histories.pop(origin, None)
+        self.active_reply_send_timestamps.pop(origin, None)
         self.image_message_registry.pop(origin, None)
+        self.pending_active_reply_jobs.pop(origin, None)
+        task = self.pending_active_reply_tasks.pop(origin, None)
+        if task and hasattr(task, "cancel"):
+            task.cancel()
 
     def touch_origin(self, origin: str, max_origins: int) -> None:
         if not origin:

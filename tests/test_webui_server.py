@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from astrbot_plugin_astrbot_enhance_mode.memory_rag_store import MemoryRAGStore
-from astrbot_plugin_astrbot_enhance_mode.webui.server import RAGWebUIServer
+from astrbot_plugin_enhance_mode_direct_reply.memory_rag_store import MemoryRAGStore
+from astrbot_plugin_enhance_mode_direct_reply.webui.server import RAGWebUIServer
 
 
 def _login_and_get_token(client: TestClient, password: str) -> str:

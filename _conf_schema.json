@@ -72,6 +72,18 @@
                 "type": "float",
                 "default": 0.1
             },
+            "rate_limit_window_sec": {
+                "description": "限流窗口(秒)",
+                "hint": "每个会话在该时间窗口内最多只允许主动回复固定次数。0 表示关闭。",
+                "type": "float",
+                "default": 0
+            },
+            "rate_limit_max_replies": {
+                "description": "窗口内最多回复次数",
+                "hint": "与“限流窗口(秒)”一起生效。超限后会把本次主动回复暂存，等 CD 到期后补发。0 表示关闭。",
+                "type": "int",
+                "default": 0
+            },
             "model_stack_size": {
                 "description": "模型触发栈长度",
                 "hint": "当 mode=model_choice 时生效，累计到该条数后触发一次模型判定。",
@@ -107,7 +119,7 @@
     },
     "group_features": {
         "description": "群聊功能增强",
-        "hint": "与群聊交互行为相关的增强能力（React 模式、角色注入、Mention/Quote 标签解析）。",
+        "hint": "与群聊交互行为相关的增强能力（React 模式、角色注入、Mention 标签解析）。",
         "type": "object",
         "items": {
             "react_mode_enable": {
@@ -123,8 +135,8 @@
                 "default": true
             },
             "mention_parse": {
-                "description": "Mention/Quote 标签解析",
-                "hint": "解析 LLM 输出中的 <mention id=\"用户ID\"/> 与 <quote id=\"消息ID\"/>，并转换为平台消息组件。",
+                "description": "Mention 标签解析",
+                "hint": "解析 LLM 输出中的 <mention id=\"用户ID\"/> 并转换为平台消息组件；<quote id=\"消息ID\"/> 会被忽略，避免引用回复。",
                 "type": "bool",
                 "default": true
             },

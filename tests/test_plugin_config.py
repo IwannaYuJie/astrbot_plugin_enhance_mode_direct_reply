@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from astrbot_plugin_astrbot_enhance_mode.plugin_config import parse_plugin_config
+from astrbot_plugin_enhance_mode_direct_reply.plugin_config import parse_plugin_config
 
 
 def test_parse_plugin_config_defaults() -> None:
@@ -12,6 +12,8 @@ def test_parse_plugin_config_defaults() -> None:
     assert cfg.active_reply.mode == "probability"
     assert cfg.active_reply.model_choice_provider_id == ""
     assert math.isclose(cfg.active_reply.possibility, 0.1)
+    assert math.isclose(cfg.active_reply.rate_limit_window_sec, 0.0)
+    assert cfg.active_reply.rate_limit_max_replies == 0
     assert cfg.group_history_enabled is False
     assert cfg.active_reply_enabled is False
     assert cfg.web_search.request_mode == "auto"
@@ -40,6 +42,8 @@ def test_active_reply_mode_and_limits_are_normalized() -> None:
         {
             "active_reply": {
                 "mode": "something_else",
+                "rate_limit_window_sec": -5,
+                "rate_limit_max_replies": -2,
                 "model_stack_size": 0,
                 "model_history_messages": -99,
                 "model_choice_provider_id": "  provider-1  ",
@@ -53,6 +57,8 @@ def test_active_reply_mode_and_limits_are_normalized() -> None:
     )
 
     assert cfg.active_reply.mode == "probability"
+    assert math.isclose(cfg.active_reply.rate_limit_window_sec, 0.0)
+    assert cfg.active_reply.rate_limit_max_replies == 0
     assert cfg.active_reply.model_stack_size == 1
     assert cfg.active_reply.model_history_messages == 0
     assert cfg.active_reply.model_choice_provider_id == "provider-1"

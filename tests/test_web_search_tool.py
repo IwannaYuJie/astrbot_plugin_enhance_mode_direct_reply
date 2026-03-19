@@ -4,9 +4,12 @@ from typing import Any
 
 import pytest
 
-from astrbot_plugin_astrbot_enhance_mode import main as main_module
-from astrbot_plugin_astrbot_enhance_mode.main import Main
-from astrbot_plugin_astrbot_enhance_mode.plugin_config import PluginConfig, WebSearchConfig
+from astrbot_plugin_enhance_mode_direct_reply import main as main_module
+from astrbot_plugin_enhance_mode_direct_reply.main import Main
+from astrbot_plugin_enhance_mode_direct_reply.plugin_config import (
+    PluginConfig,
+    WebSearchConfig,
+)
 
 
 class _DummyEvent:

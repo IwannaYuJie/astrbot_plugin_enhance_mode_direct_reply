@@ -89,6 +89,8 @@ class ActiveReplyConfig:
     enable: bool = False
     mode: str = "probability"
     possibility: float = 0.1
+    rate_limit_window_sec: float = 0.0
+    rate_limit_max_replies: int = 0
     model_stack_size: int = 8
     model_history_messages: int = 0
     model_choice_provider_id: str = ""
@@ -214,6 +216,12 @@ def parse_plugin_config(raw: dict[str, Any] | None) -> PluginConfig:
         enable=_to_bool(active_reply_raw.get("enable"), False),
         mode=mode,
         possibility=_to_probability(active_reply_raw.get("possibility"), 0.1),
+        rate_limit_window_sec=max(
+            0.0, _to_pos_float(active_reply_raw.get("rate_limit_window_sec"), 0.0)
+        ),
+        rate_limit_max_replies=max(
+            0, _to_int(active_reply_raw.get("rate_limit_max_replies"), 0)
+        ),
         model_stack_size=max(1, _to_int(active_reply_raw.get("model_stack_size"), 8)),
         model_history_messages=max(
             0, _to_int(active_reply_raw.get("model_history_messages"), 0)

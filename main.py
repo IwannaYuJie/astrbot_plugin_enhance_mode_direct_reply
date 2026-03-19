@@ -55,7 +55,7 @@ class Main(star.Star):
         plugin_data_dir = (
             Path(get_astrbot_data_path())
             / "plugin_data"
-            / "astrbot_plugin_astrbot_enhance_mode"
+            / "astrbot_plugin_enhance_mode_direct_reply"
         )
         self.ban_store = BanStore(plugin_data_dir / "ban_list.db")
         self.memory_rag_store: MemoryRAGStore | None = None
@@ -79,6 +79,120 @@ class Main(star.Star):
 
     def _touch_origin(self, origin: str, cfg: PluginConfig) -> None:
         self.runtime.touch_origin(origin, cfg.global_settings.lru_cache.max_origins)
+
+    @staticmethod
+    def _active_reply_rate_limit_enabled(cfg: PluginConfig) -> bool:
+        ar = cfg.active_reply
+        return ar.rate_limit_window_sec > 0 and ar.rate_limit_max_replies > 0
+
+    def _prune_active_reply_send_timestamps(
+        self,
+        origin: str,
+        cfg: PluginConfig,
+        now_ts: float | None = None,
+    ) -> None:
+        if not self._active_reply_rate_limit_enabled(cfg):
+            return
+        timestamps = self.runtime.active_reply_send_timestamps[origin]
+        if not timestamps:
+            return
+        now_ts = time.time() if now_ts is None else now_ts
+        cutoff = now_ts - cfg.active_reply.rate_limit_window_sec
+        while timestamps and timestamps[0] <= cutoff:
+            timestamps.popleft()
+
+    def _active_reply_wait_seconds(
+        self,
+        origin: str,
+        cfg: PluginConfig,
+        now_ts: float | None = None,
+    ) -> float:
+        if not self._active_reply_rate_limit_enabled(cfg):
+            return 0.0
+        now_ts = time.time() if now_ts is None else now_ts
+        self._prune_active_reply_send_timestamps(origin, cfg, now_ts)
+        timestamps = self.runtime.active_reply_send_timestamps[origin]
+        if len(timestamps) < cfg.active_reply.rate_limit_max_replies:
+            return 0.0
+        next_available_at = timestamps[0] + cfg.active_reply.rate_limit_window_sec
+        return max(0.0, next_available_at - now_ts)
+
+    def _mark_active_reply_sent(
+        self,
+        origin: str,
+        cfg: PluginConfig,
+        now_ts: float | None = None,
+    ) -> None:
+        if not self._active_reply_rate_limit_enabled(cfg):
+            return
+        now_ts = time.time() if now_ts is None else now_ts
+        self._prune_active_reply_send_timestamps(origin, cfg, now_ts)
+        self.runtime.active_reply_send_timestamps[origin].append(now_ts)
+
+    def _queue_delayed_active_reply(
+        self,
+        event: AstrMessageEvent,
+        cfg: PluginConfig,
+        wait_seconds: float,
+    ) -> None:
+        origin = event.unified_msg_origin
+        self._touch_origin(origin, cfg)
+        pending = {
+            "pending_id": uuid.uuid4().hex,
+            "origin": origin,
+            "trigger_text": str(event.message_str or "").strip(),
+            "mode": str(event.get_extra("_enhance_active_reply_mode", "") or cfg.active_reply.mode),
+            "queued_at": time.time(),
+        }
+        replaced = origin in self.runtime.pending_active_reply_jobs
+        self.runtime.pending_active_reply_jobs[origin] = pending
+        task = self.runtime.pending_active_reply_tasks.get(origin)
+        if task is None or task.done():
+            self.runtime.pending_active_reply_tasks[origin] = asyncio.create_task(
+                self._flush_delayed_active_reply(origin)
+            )
+        logger.info(
+            "enhance-mode | active_reply queued | origin=%s wait_seconds=%.2f replaced=%s mode=%s",
+            origin,
+            wait_seconds,
+            replaced,
+            pending["mode"],
+        )
+
+    async def _flush_delayed_active_reply(self, origin: str) -> None:
+        try:
+            while True:
+                pending = self.runtime.pending_active_reply_jobs.get(origin)
+                if not pending:
+                    return
+
+                cfg = self._cfg()
+                if not cfg.active_reply_enabled:
+                    self.runtime.pending_active_reply_jobs.pop(origin, None)
+                    return
+
+                wait_seconds = self._active_reply_wait_seconds(origin, cfg)
+                if wait_seconds > 0:
+                    await asyncio.sleep(wait_seconds)
+                    continue
+
+                pending_id = str(pending.get("pending_id") or "")
+                self._mark_active_reply_sent(origin, cfg)
+                await self._send_delayed_active_reply(origin, pending, cfg)
+
+                latest = self.runtime.pending_active_reply_jobs.get(origin)
+                if latest and str(latest.get("pending_id") or "") == pending_id:
+                    self.runtime.pending_active_reply_jobs.pop(origin, None)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error(traceback.format_exc())
+            logger.error(
+                "enhance-mode | delayed active_reply flush failed | origin=%s",
+                origin,
+            )
+        finally:
+            self.runtime.pending_active_reply_tasks.pop(origin, None)
 
     def _resolve_config_timezone(self) -> str:
         base_cfg = self.context.get_config()
@@ -492,12 +606,12 @@ class Main(star.Star):
             return False
         return True
 
-    async def _resolve_persona_mask(self, event: AstrMessageEvent) -> tuple[str, str]:
+    async def _resolve_persona_mask_by_origin(self, origin: str) -> tuple[str, str]:
         persona_id = ""
         try:
             session_service_config = await sp.get_async(
                 scope="umo",
-                scope_id=event.unified_msg_origin,
+                scope_id=origin,
                 key="session_service_config",
                 default={},
             )
@@ -510,12 +624,12 @@ class Main(star.Star):
             try:
                 curr_cid = (
                     await self.context.conversation_manager.get_curr_conversation_id(
-                        event.unified_msg_origin,
+                        origin,
                     )
                 )
                 if curr_cid:
                     conv = await self.context.conversation_manager.get_conversation(
-                        event.unified_msg_origin,
+                        origin,
                         curr_cid,
                     )
                     if conv and conv.persona_id:
@@ -524,7 +638,7 @@ class Main(star.Star):
                 logger.debug(f"enhance-mode | 获取 conversation persona 失败: {e}")
 
         if not persona_id:
-            cfg = self.context.get_config(umo=event.unified_msg_origin)
+            cfg = self.context.get_config(umo=origin)
             persona_id = str(
                 cfg.get("provider_settings", {}).get("default_personality") or ""
             ).strip()
@@ -549,7 +663,7 @@ class Main(star.Star):
         if not persona:
             try:
                 persona = await self.context.persona_manager.get_default_persona_v3(
-                    event.unified_msg_origin
+                    origin
                 )
             except Exception:
                 persona = {"name": "default", "prompt": ""}
@@ -559,6 +673,9 @@ class Main(star.Star):
         if not persona_prompt:
             persona_prompt = "You are a helpful and friendly assistant."
         return persona_name, persona_prompt
+
+    async def _resolve_persona_mask(self, event: AstrMessageEvent) -> tuple[str, str]:
+        return await self._resolve_persona_mask_by_origin(event.unified_msg_origin)
 
     def _resolve_model_choice_provider(
         self, event: AstrMessageEvent, cfg: PluginConfig
@@ -1604,6 +1721,14 @@ class Main(star.Star):
                 logger.error(f"enhance-mode | record message error: {e}")
 
         if need_active:
+            wait_seconds = self._active_reply_wait_seconds(event.unified_msg_origin, cfg)
+            if (
+                event.unified_msg_origin in self.runtime.pending_active_reply_jobs
+                or wait_seconds > 0
+            ):
+                self._queue_delayed_active_reply(event, cfg, wait_seconds)
+                return
+
             provider = self.context.get_using_provider(event.unified_msg_origin)
             if not provider:
                 logger.error("enhance-mode | 未找到任何 LLM 提供商，无法主动回复")
@@ -1639,6 +1764,7 @@ class Main(star.Star):
                     logger.error("enhance-mode | 未找到对话，无法主动回复")
                     return
 
+                self._mark_active_reply_sent(event.unified_msg_origin, cfg)
                 yield event.request_llm(
                     prompt=event.message_str,
                     session_id=event.session_id,
@@ -1719,6 +1845,168 @@ class Main(star.Star):
             len(chats),
         )
 
+    def _record_bot_response_text(
+        self,
+        origin: str,
+        completion_text: str,
+        cfg: PluginConfig,
+    ) -> None:
+        if not cfg.group_history_enabled:
+            return
+        if origin not in self.runtime.session_chats:
+            return
+        if not completion_text:
+            return
+        if has_refuse_tag(completion_text):
+            logger.info(
+                "enhance-mode | 检测到 <refuse/>，跳过机器人回复历史记录 | origin=%s",
+                origin,
+            )
+            return
+
+        datetime_str = datetime.datetime.now().strftime("%H:%M:%S")
+        text = clean_response_text_for_history(completion_text)
+        if not text:
+            return
+        final_message = f"[You/{datetime_str}]: {text}"
+
+        logger.debug(
+            "enhance-mode | recorded AI response: %s | %s",
+            origin,
+            final_message,
+        )
+
+        self._touch_origin(origin, cfg)
+        chats = self.runtime.session_chats[origin]
+        chats.append(final_message)
+        if len(chats) > cfg.group_history.max_messages:
+            removed_line = chats.pop(0)
+            removed_msg_id = self._extract_message_id_from_history_line(removed_line)
+            if removed_msg_id:
+                self.runtime.image_message_registry[origin].pop(removed_msg_id, None)
+        logger.debug(
+            "enhance-mode | bot response recorded | origin=%s size=%s",
+            origin,
+            len(chats),
+        )
+
+    async def _build_delayed_active_reply_prompt(
+        self,
+        origin: str,
+        pending: dict[str, object],
+        cfg: PluginConfig,
+    ) -> str:
+        chats = self.runtime.session_chats.get(origin, [])
+        bounded_chats = bounded_chat_history_text(chats) if chats else "(no history)"
+        interaction_instructions = build_interaction_instructions(
+            cfg.group_features.mention_parse,
+            cfg.group_history.include_sender_id,
+        )
+        persona_name, persona_mask = await self._resolve_persona_mask_by_origin(origin)
+        persona_block = (
+            f"You are roleplaying this persona in the group chat.\n"
+            f"Persona name: {persona_name}\n"
+            f"Persona prompt:\n{persona_mask}\n\n"
+        )
+        mode = str(pending.get("mode") or cfg.active_reply.mode).strip().lower()
+        trigger_text = str(pending.get("trigger_text") or "").strip()
+        if mode == "model_choice":
+            return (
+                f"{persona_block}"
+                f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
+                "You wanted to actively join this conversation earlier, but your reply was delayed by the speaking cooldown.\n"
+                "Read the current chat history again and compose one natural standalone reply now. "
+                "Only output your response and do not output any other information. "
+                "You MUST use the SAME language as the chatroom is using."
+                f"{interaction_instructions}"
+            )
+        if not trigger_text:
+            trigger_text = "[No trigger text available]"
+        return (
+            f"{persona_block}"
+            f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
+            f"A message that previously triggered your active reply is: `{trigger_text}`. "
+            "That reply was delayed by the speaking cooldown. "
+            "Please react to it now using the current chat context. "
+            "Your entire output is your reply to this message. "
+            "Send a normal message directly instead of using quote-style replies. "
+            "Only output your response and do not output any other information. "
+            "You MUST use the SAME language as the chatroom is using."
+            f"{interaction_instructions}"
+        )
+
+    async def _send_delayed_active_reply(
+        self,
+        origin: str,
+        pending: dict[str, object],
+        cfg: PluginConfig,
+    ) -> None:
+        provider = self.context.get_using_provider(origin)
+        if not provider or not isinstance(provider, Provider):
+            logger.error(
+                "enhance-mode | delayed active_reply failed: provider unavailable | origin=%s",
+                origin,
+            )
+            return
+
+        prompt = await self._build_delayed_active_reply_prompt(origin, pending, cfg)
+        try:
+            response = await provider.text_chat(
+                prompt=prompt,
+                session_id=uuid.uuid4().hex,
+                persist=False,
+            )
+        except Exception as e:
+            logger.error(
+                "enhance-mode | delayed active_reply provider call failed | origin=%s error=%s",
+                origin,
+                e,
+            )
+            return
+
+        completion_text = str(response.completion_text or "")
+        if not completion_text.strip():
+            logger.info(
+                "enhance-mode | delayed active_reply empty response skipped | origin=%s",
+                origin,
+            )
+            return
+        if has_refuse_tag(completion_text):
+            logger.info(
+                "enhance-mode | delayed active_reply refused by model | origin=%s",
+                origin,
+            )
+            return
+
+        chain: list[Any] = [Plain(text=completion_text)]
+        transformed = transform_result_chain(
+            chain,
+            parse_mention=cfg.group_features.mention_parse,
+        )
+        if transformed is not None:
+            chain = transformed
+        if not chain:
+            logger.info(
+                "enhance-mode | delayed active_reply empty chain after transform | origin=%s",
+                origin,
+            )
+            return
+
+        sent = await self.context.send_message(origin, chain)
+        if not sent:
+            logger.error(
+                "enhance-mode | delayed active_reply send_message returned false | origin=%s",
+                origin,
+            )
+            return
+
+        self._record_bot_response_text(origin, completion_text, cfg)
+        logger.info(
+            "enhance-mode | delayed active_reply sent | origin=%s mode=%s",
+            origin,
+            pending.get("mode"),
+        )
+
     @filter.on_llm_request()
     async def inject_group_context(
         self, event: AstrMessageEvent, req: ProviderRequest
@@ -1768,7 +2056,7 @@ class Main(star.Star):
                     f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
                     "You decided to actively join this conversation because some recent messages are worth replying to.\n"
                     "Choose the message(s) you want to respond to from the chat history above, "
-                    "and compose a natural reply. Quote the message you choose in most cases.\n"
+                    "and compose a natural reply as a normal standalone message.\n"
                     "Only output your response and do not output any other information. "
                     "You MUST use the SAME language as the chatroom is using."
                     f"{interaction_instructions}"
@@ -1779,7 +2067,7 @@ class Main(star.Star):
                     f"You are now in a chatroom. The chat history is as follows:\n{bounded_chats}\n\n"
                     f"Now, a new message is coming: `{prompt}`. "
                     "Please react to it. Your entire output is your reply to this message. "
-                    "Quote the message which is coming in most cases. "
+                    "Send a normal message directly instead of using quote-style replies. "
                     "Only output your response and do not output any other information. "
                     "You MUST use the SAME language as the chatroom is using."
                     f"{interaction_instructions}"
@@ -1826,45 +2114,10 @@ class Main(star.Star):
         self, event: AstrMessageEvent, resp: LLMResponse
     ) -> None:
         cfg = self._cfg()
-        if not cfg.group_history_enabled:
-            return
-        if event.unified_msg_origin not in self.runtime.session_chats:
-            return
-        if not resp.completion_text:
-            return
-
-        if has_refuse_tag(resp.completion_text):
-            logger.info(
-                "enhance-mode | 检测到 <refuse/>，跳过机器人回复历史记录 | "
-                f"origin={event.unified_msg_origin}"
-            )
-            return
-
-        datetime_str = datetime.datetime.now().strftime("%H:%M:%S")
-        text = clean_response_text_for_history(resp.completion_text)
-        if not text:
-            return
-        final_message = f"[You/{datetime_str}]: {text}"
-
-        logger.debug(
-            f"enhance-mode | recorded AI response: "
-            f"{event.unified_msg_origin} | {final_message}"
-        )
-
-        self._touch_origin(event.unified_msg_origin, cfg)
-        chats = self.runtime.session_chats[event.unified_msg_origin]
-        chats.append(final_message)
-        if len(chats) > cfg.group_history.max_messages:
-            removed_line = chats.pop(0)
-            removed_msg_id = self._extract_message_id_from_history_line(removed_line)
-            if removed_msg_id:
-                self.runtime.image_message_registry[event.unified_msg_origin].pop(
-                    removed_msg_id, None
-                )
-        logger.debug(
-            "enhance-mode | bot response recorded | origin=%s size=%s",
+        self._record_bot_response_text(
             event.unified_msg_origin,
-            len(chats),
+            str(resp.completion_text or ""),
+            cfg,
         )
 
     @filter.after_message_sent()
@@ -2676,5 +2929,10 @@ class Main(star.Star):
 
     async def terminate(self) -> None:
         logger.info("enhance-mode | plugin terminating")
+        for task in list(self.runtime.pending_active_reply_tasks.values()):
+            if task and not task.done():
+                task.cancel()
+        self.runtime.pending_active_reply_tasks.clear()
+        self.runtime.pending_active_reply_jobs.clear()
         await self._stop_memory_rag_webui()
         logger.info("enhance-mode | plugin terminated")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from astrbot_plugin_astrbot_enhance_mode.memory_rag_store import MemoryRAGStore
+from astrbot_plugin_enhance_mode_direct_reply.memory_rag_store import MemoryRAGStore
 
 
 def test_add_get_delete_memory_roundtrip(tmp_path) -> None:

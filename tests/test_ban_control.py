@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from astrbot_plugin_astrbot_enhance_mode import ban_control
-from astrbot_plugin_astrbot_enhance_mode.ban_control import (
+from astrbot_plugin_enhance_mode_direct_reply import ban_control
+from astrbot_plugin_enhance_mode_direct_reply.ban_control import (
     BanStore,
     parse_duration_seconds,
 )

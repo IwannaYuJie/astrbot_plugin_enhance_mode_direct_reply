@@ -1,6 +1,6 @@
 import re
 
-from astrbot.api.message_components import At, Plain, Reply
+from astrbot.api.message_components import At, Plain
 
 MENTION_RE = re.compile(
     r"""<mention\s+id\s*=\s*['"]([^'"]+)['"]\s*/?>""",
@@ -15,27 +15,7 @@ QUOTE_CLOSE_RE = re.compile(r"</quote\s*>", re.IGNORECASE)
 STRICT_REFUSE_RE = re.compile(r"<refuse/>")
 
 
-def normalize_quote_id(raw_id: str | None) -> str:
-    if not raw_id:
-        return ""
-    quote_id = str(raw_id).strip()
-    if quote_id.startswith("#"):
-        quote_id = quote_id[1:]
-    if quote_id.lower().startswith("msg"):
-        quote_id = quote_id[3:]
-    return quote_id.strip()
-
-
 def transform_result_chain(chain: list, parse_mention: bool) -> list | None:
-    quote_msg_id = None
-    if any(isinstance(comp, Plain) and QUOTE_RE.search(comp.text) for comp in chain):
-        for comp in chain:
-            if isinstance(comp, Plain):
-                matched = QUOTE_RE.search(comp.text)
-                if matched:
-                    quote_msg_id = normalize_quote_id(matched.group(1))
-                    break
-
     has_tags = any(
         isinstance(comp, Plain)
         and (
@@ -46,7 +26,7 @@ def transform_result_chain(chain: list, parse_mention: bool) -> list | None:
         )
         for comp in chain
     )
-    if not has_tags and not quote_msg_id:
+    if not has_tags:
         return None
 
     new_chain = []
@@ -71,9 +51,6 @@ def transform_result_chain(chain: list, parse_mention: bool) -> list | None:
             text = MENTION_CLOSE_RE.sub("", text)
             if text.strip():
                 new_chain.append(Plain(text=text))
-
-    if quote_msg_id:
-        new_chain.insert(0, Reply(id=quote_msg_id))
 
     return new_chain
 
@@ -103,14 +80,10 @@ def build_interaction_instructions(
         )
 
     instructions += (
-        "\n\n## Quote\n"
-        'When you want to quote/reply to a specific message, place <quote id="msg_id"/> '
-        "at the very beginning of your reply.\n"
-        'For example: <quote id="12345"/> I agree with this!\n'
-        "The msg_id can be found in the chat history after the # symbol (e.g. #msg12345).\n"
-        "You can only quote ONE message per reply. The quote tag MUST be the first thing in your output.\n"
-        "Only use quote when it is meaningful to reference a specific message.\n"
-        "Important: quote tag is NOT a container tag. Do NOT output </quote>."
+        "\n\n## Reply Style\n"
+        "Reply with a normal message only.\n"
+        "Do NOT quote or reference a specific message with <quote .../> tags.\n"
+        "If quote tags appear in your drafted output, they will be removed before sending."
     )
     instructions += (
         "\n\n## Refuse\n"

@@ -5,14 +5,14 @@ import json
 from mcp import types as mcp_types
 import pytest
 
-from astrbot_plugin_astrbot_enhance_mode.main import Main
-from astrbot_plugin_astrbot_enhance_mode.plugin_config import (
+from astrbot_plugin_enhance_mode_direct_reply.main import Main
+from astrbot_plugin_enhance_mode_direct_reply.plugin_config import (
     GlobalSettingsConfig,
     GroupFeatureEnhancementConfig,
     GroupHistoryEnhancementConfig,
     PluginConfig,
 )
-from astrbot_plugin_astrbot_enhance_mode.runtime_state import RuntimeState
+from astrbot_plugin_enhance_mode_direct_reply.runtime_state import RuntimeState
 
 
 class _DummyEvent:
