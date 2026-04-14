@@ -1,5 +1,0 @@
-name: astrbot_plugin_enhance_mode_direct_reply
-desc: 群聊增强插件分支版，改为直接发消息而非引用回复，并提供 React 模式、Mention/Refuse 标签处理、封禁控制、按需图片转述、Memory RAG 与可视化 WebUI。
-author: 阿汐
-version: 0.2.5
-repo: ""
